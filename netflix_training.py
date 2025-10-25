@@ -96,6 +96,218 @@ def print_evaluation(results):
 
 
 # ============================================================================
+# 2B. DIAGNOSTIC FUNCTIONS
+# ============================================================================
+
+
+def analyze_prediction_distribution(y_true, y_pred, model_name, genre_names):
+    """Analyze prediction distribution to diagnose underprediction issues"""
+    print("\n" + "=" * 60)
+    print(f"PREDICTION DISTRIBUTION ANALYSIS: {model_name}")
+    print("=" * 60)
+
+    # Overall prediction statistics
+    true_labels_per_sample = y_true.sum(axis=1).mean()
+    pred_labels_per_sample = y_pred.sum(axis=1).mean()
+
+    total_true_labels = y_true.sum()
+    total_pred_labels = y_pred.sum()
+
+    print("\n📊 Overall Statistics:")
+    print(f"  Avg labels per sample (true):      {true_labels_per_sample:.2f}")
+    print(f"  Avg labels per sample (predicted): {pred_labels_per_sample:.2f}")
+    print(f"  Total true labels:       {total_true_labels:,}")
+    print(f"  Total predicted labels:  {total_pred_labels:,}")
+    print(
+        f"  Prediction ratio:        {pred_labels_per_sample / true_labels_per_sample:.2%}"
+    )
+
+    # Samples with zero predictions
+    zero_pred_samples = (y_pred.sum(axis=1) == 0).sum()
+    print(f"\n⚠️  Samples with ZERO predictions: {zero_pred_samples} / {len(y_pred)}")
+
+    # Per-genre prediction rates
+    true_rate = y_true.mean(axis=0)
+    pred_rate = y_pred.mean(axis=0)
+
+    genre_analysis = pd.DataFrame(
+        {
+            "genre": genre_names,
+            "support": y_true.sum(axis=0),
+            "true_rate": true_rate,
+            "pred_rate": pred_rate,
+            "ratio": pred_rate / (true_rate + 1e-10),
+        }
+    )
+
+    # Show most underpredicted genres
+    print("\n🔻 Most Underpredicted Genres (pred_rate < true_rate):")
+    underpredicted = genre_analysis[genre_analysis["ratio"] < 0.5].sort_values("ratio")
+    print(underpredicted.head(10).to_string(index=False))
+
+    # Show most overpredicted genres
+    print("\n🔺 Most Overpredicted Genres (pred_rate > true_rate):")
+    overpredicted = genre_analysis[genre_analysis["ratio"] > 1.5].sort_values(
+        "ratio", ascending=False
+    )
+    if len(overpredicted) > 0:
+        print(overpredicted.head(10).to_string(index=False))
+    else:
+        print("  (None - model is underpredicting across the board)")
+
+    return genre_analysis
+
+
+def analyze_prediction_confidence(model, X_test, y_test, genre_names, model_name):
+    """Analyze prediction probabilities to understand threshold issues"""
+    print("\n" + "=" * 60)
+    print(f"PREDICTION CONFIDENCE ANALYSIS: {model_name}")
+    print("=" * 60)
+
+    # Get prediction probabilities for each genre
+    # MultiOutputClassifier doesn't have predict_proba directly, need to get per estimator
+    try:
+        # Get probabilities from each base estimator
+        proba_list = []
+        for estimator in model.estimators_:
+            if hasattr(estimator, "predict_proba"):
+                # Get probability of positive class (class 1)
+                proba = estimator.predict_proba(X_test)[:, 1]
+                proba_list.append(proba)
+            else:
+                print(
+                    f"  ⚠️ {model_name} estimators don't support predict_proba, skipping confidence analysis"
+                )
+                return
+
+        proba_matrix = np.column_stack(proba_list)
+
+        # Analyze probability distribution
+        print("\n📊 Probability Distribution:")
+        print(f"  Mean probability (all genres):  {proba_matrix.mean():.3f}")
+        print(f"  Median probability:             {np.median(proba_matrix):.3f}")
+        print(f"  Std deviation:                  {proba_matrix.std():.3f}")
+
+        # Threshold analysis
+        print("\n🎯 Threshold Analysis (current threshold = 0.5):")
+        for threshold in [0.1, 0.2, 0.3, 0.4, 0.5]:
+            pred_at_threshold = (proba_matrix >= threshold).astype(int)
+            labels_per_sample = pred_at_threshold.sum(axis=1).mean()
+            print(
+                f"  Threshold {threshold:.1f}: {labels_per_sample:.2f} avg labels/sample"
+            )
+
+        # Per-genre probability analysis
+        genre_proba_stats = pd.DataFrame(
+            {
+                "genre": genre_names,
+                "mean_proba": proba_matrix.mean(axis=0),
+                "max_proba": proba_matrix.max(axis=0),
+                "pct_above_0.5": (proba_matrix >= 0.5).mean(axis=0) * 100,
+                "pct_above_0.3": (proba_matrix >= 0.3).mean(axis=0) * 100,
+            }
+        ).sort_values("mean_proba", ascending=False)
+
+        print("\n📈 Top 10 Genres by Average Probability:")
+        print(genre_proba_stats.head(10).to_string(index=False))
+
+        print("\n📉 Bottom 10 Genres by Average Probability:")
+        print(genre_proba_stats.tail(10).to_string(index=False))
+
+    except Exception as e:
+        print(f"  ⚠️ Could not analyze confidence: {e}")
+
+
+def compare_models_diagnostics(y_true, y_pred_lr, y_pred_rf, genre_names):
+    """Side-by-side comparison of LR vs RF predictions"""
+    print("\n" + "=" * 60)
+    print("MODEL COMPARISON: LR vs RF")
+    print("=" * 60)
+
+    # Overall comparison
+    lr_labels = y_pred_lr.sum(axis=1).mean()
+    rf_labels = y_pred_rf.sum(axis=1).mean()
+    true_labels = y_true.sum(axis=1).mean()
+
+    print("\n📊 Labels per Sample:")
+    print(f"  True:               {true_labels:.2f}")
+    print(f"  Logistic Regression: {lr_labels:.2f} ({lr_labels/true_labels:.1%})")
+    print(f"  Random Forest:      {rf_labels:.2f} ({rf_labels/true_labels:.1%})")
+
+    # Per-genre comparison
+    lr_pred_rate = y_pred_lr.mean(axis=0)
+    rf_pred_rate = y_pred_rf.mean(axis=0)
+    true_rate = y_true.mean(axis=0)
+
+    comparison = pd.DataFrame(
+        {
+            "genre": genre_names,
+            "true_rate": true_rate,
+            "lr_pred_rate": lr_pred_rate,
+            "rf_pred_rate": rf_pred_rate,
+            "lr_ratio": lr_pred_rate / (true_rate + 1e-10),
+            "rf_ratio": rf_pred_rate / (true_rate + 1e-10),
+        }
+    )
+
+    print("\n🔍 Genres where RF significantly worse than LR:")
+    comparison["diff"] = comparison["lr_ratio"] - comparison["rf_ratio"]
+    worst_rf = comparison.sort_values("diff", ascending=False).head(10)
+    print(
+        worst_rf[["genre", "true_rate", "lr_ratio", "rf_ratio", "diff"]].to_string(
+            index=False
+        )
+    )
+
+
+def show_sample_diagnostics(y_true, y_pred, X_test, df_test, genre_names, model_name):
+    """Show examples of problematic predictions"""
+    print("\n" + "=" * 60)
+    print(f"SAMPLE-LEVEL DIAGNOSTICS: {model_name}")
+    print("=" * 60)
+
+    # Find samples with zero predictions
+    zero_pred_idx = np.where(y_pred.sum(axis=1) == 0)[0][:3]
+
+    if len(zero_pred_idx) > 0:
+        print("\n❌ Examples where model predicted ZERO labels:")
+        for idx in zero_pred_idx:
+            true_genres = [
+                genre_names[i] for i in range(len(genre_names)) if y_true[idx, i] == 1
+            ]
+            test_idx = df_test.index[idx]
+            title = df_test.loc[test_idx, "title"]
+            desc = df_test.loc[test_idx, "description"]
+
+            print(f"\n  Title: {title}")
+            print(f"  Description: {desc[:80]}...")
+            print(f"  True genres: {', '.join(true_genres)}")
+            print(f"  Predicted: (none)")
+
+    # Find samples with severe underprediction
+    true_count = y_true.sum(axis=1)
+    pred_count = y_pred.sum(axis=1)
+    underpred_idx = np.where((true_count - pred_count) >= 2)[0][:3]
+
+    if len(underpred_idx) > 0:
+        print("\n⚠️  Examples of severe underprediction:")
+        for idx in underpred_idx:
+            true_genres = [
+                genre_names[i] for i in range(len(genre_names)) if y_true[idx, i] == 1
+            ]
+            pred_genres = [
+                genre_names[i] for i in range(len(genre_names)) if y_pred[idx, i] == 1
+            ]
+            test_idx = df_test.index[idx]
+            title = df_test.loc[test_idx, "title"]
+
+            print(f"\n  Title: {title}")
+            print(f"  True: {', '.join(true_genres)} ({len(true_genres)} labels)")
+            print(f"  Pred: {', '.join(pred_genres)} ({len(pred_genres)} labels)")
+            print(f"  Missing: {len(true_genres) - len(pred_genres)} labels")
+
+
+# ============================================================================
 # 3. BASELINE MODEL: LOGISTIC REGRESSION
 # ============================================================================
 
@@ -274,15 +486,35 @@ if __name__ == "__main__":
     lr_model, lr_results = train_baseline_model(
         X_train, y_train, X_test, y_test, genre_names
     )
+    lr_y_pred = lr_model.predict(X_test)
+
+    # Diagnostic analysis for Logistic Regression
+    analyze_prediction_distribution(y_test, lr_y_pred, "Logistic Regression", genre_names)
+    show_sample_diagnostics(
+        y_test, lr_y_pred, X_test, df_test_subset, genre_names, "Logistic Regression"
+    )
 
     # Train random forest model
     rf_model, rf_results = train_random_forest(
         X_train, y_train, X_test, y_test, genre_names
     )
+    rf_y_pred = rf_model.predict(X_test)
+
+    # Diagnostic analysis for Random Forest
+    analyze_prediction_distribution(y_test, rf_y_pred, "Random Forest", genre_names)
+    analyze_prediction_confidence(
+        rf_model, X_test, y_test, genre_names, "Random Forest"
+    )
+    show_sample_diagnostics(
+        y_test, rf_y_pred, X_test, df_test_subset, genre_names, "Random Forest"
+    )
+
+    # Side-by-side comparison
+    compare_models_diagnostics(y_test, lr_y_pred, rf_y_pred, genre_names)
 
     # Compare models
     print("\n" + "=" * 60)
-    print("MODEL COMPARISON")
+    print("MODEL COMPARISON - F1 SCORES")
     print("=" * 60)
     print(f"Logistic Regression F1 (macro): {lr_results['f1_macro']:.4f}")
     print(f"Random Forest F1 (macro):       {rf_results['f1_macro']:.4f}")
