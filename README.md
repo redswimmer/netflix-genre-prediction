@@ -49,7 +49,7 @@ brew install ollama
 
 1. **Clone the repository:**
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/redswimmer/netflix-genre-prediction.git
 cd netflix-genre-prediction
 ```
 
@@ -59,7 +59,7 @@ cd netflix-genre-prediction
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-uv pip install pandas numpy scikit-learn tqdm ollama
+uv sync
 ```
 
 3. **Pull the embedding model:**
@@ -86,7 +86,7 @@ curl http://localhost:11434/api/embed -d '{
 
 ```
 netflix-genre-prediction/
-├── NetFlix.csv                    # Dataset (place here)
+├── NetFlix.csv                    # Dataset
 ├── netflix_preprocessing.py       # Preprocessing pipeline
 ├── netflix_training.py            # Model training & evaluation
 └── processed_data/                # Generated during preprocessing
@@ -343,26 +343,6 @@ preprocessor.generate_embeddings(texts, batch_size=10)
 RandomForestClassifier(n_estimators=50)
 ```
 
-### Slow Embedding Generation
-- Expected time: 3-5 minutes on CPU for 7,787 descriptions
-- With GPU: ~1 minute
-- Consider using smaller embedding dimension if needed
-
----
-
-## 📚 Dependencies
-
-- **pandas** >= 1.5.0 - Data manipulation
-- **numpy** >= 1.24.0 - Numerical operations
-- **scikit-learn** >= 1.3.0 - Machine learning models
-- **tqdm** >= 4.66.0 - Progress bars
-- **ollama** >= 0.1.0 - Embedding generation
-
-Install with:
-```bash
-uv pip install pandas numpy scikit-learn tqdm ollama
-```
-
 ---
 
 ## 📖 References
@@ -377,5 +357,5 @@ uv pip install pandas numpy scikit-learn tqdm ollama
 - [ollama.com/library/embeddinggemma](https://ollama.com/library/embeddinggemma)
 
 ### AI Assistance
-Assistance provided by Claude (Anthropic) for: (1) Netflix dataset feasibility analysis and problem identification, (2) feature engineering guidance comparing TF-IDF and embedding approaches, (3) complete Python implementation of preprocessing pipeline using Ollama embeddinggemma for text embeddings, and (4) multi-label classification training framework, [INSERT DATE].
+Assistance provided by Claude (Anthropic) for: (1) Netflix dataset feasibility analysis and problem identification, (2) feature engineering guidance comparing TF-IDF and embedding approaches, (3) complete Python implementation of preprocessing pipeline using Ollama embeddinggemma for text embeddings, and (4) multi-label classification training framework, 10/25/2025.
 

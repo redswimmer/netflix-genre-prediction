@@ -4,4 +4,10 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "numpy>=2.3.4",
+    "ollama>=0.6.0",
+    "pandas>=2.3.3",
+    "scikit-learn>=1.7.2",
+    "tqdm>=4.67.1",
+]
