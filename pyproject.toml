@@ -11,3 +11,50 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "tqdm>=4.67.1",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.9.0",
+]
+
+[tool.ruff]
+# Set line length to 88 (Black-compatible default)
+line-length = 88
+target-version = "py313"
+
+# Exclude common directories
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+# Enable recommended rule sets
+# E/W - pycodestyle errors and warnings
+# F - Pyflakes
+# UP - pyupgrade (modern Python syntax)
+# B - flake8-bugbear (common bugs and design issues)
+# I - isort (import sorting)
+# A - flake8-builtins (prevent shadowing builtins)
+# RUF - Ruff-specific rules
+select = ["E", "F", "W", "UP", "B", "I", "A", "RUF"]
+
+# Ignore specific rules that may be too strict
+ignore = [
+    "E501",  # Line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow unused imports in __init__.py files
+"__init__.py" = ["F401"]
+
+[tool.ruff.format]
+# Use Black-compatible formatting settings
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

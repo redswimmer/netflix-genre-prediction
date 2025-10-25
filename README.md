@@ -89,6 +89,9 @@ netflix-genre-prediction/
 ├── NetFlix.csv                    # Dataset
 ├── netflix_preprocessing.py       # Preprocessing pipeline
 ├── netflix_training.py            # Model training & evaluation
+├── Makefile                       # Build automation commands
+├── pyproject.toml                 # Project dependencies & ruff config
+├── CLAUDE.md                      # AI assistant instructions
 └── processed_data/                # Generated during preprocessing
     ├── X.npy                      # Feature matrix (7787, 785)
     ├── y.npy                      # Target matrix (7787, 42)
@@ -172,6 +175,45 @@ Top Performing Genres:
 Most Confused Genre Pairs:
   Predicted: International Movies → Actual: Dramas (47 cases)
   Predicted: Comedies → Actual: Romantic Movies (32 cases)
+```
+
+---
+
+## ⚡ Using the Makefile
+
+For convenience, a Makefile is provided with common commands:
+
+```bash
+# View all available commands
+make help
+
+# Install dependencies (includes dev tools like ruff)
+make install
+
+# Run the pipeline
+make preprocess       # Generate embeddings and features
+make train            # Train and evaluate models
+make all              # Run full pipeline (preprocess + train)
+
+# Code quality
+make lint             # Check code with ruff
+make format           # Auto-format code with ruff
+
+# Cleanup
+make clean            # Remove processed_data/ and cache files
+```
+
+**Quick workflow:**
+```bash
+# First time setup
+make install
+ollama pull embeddinggemma
+
+# Run full pipeline
+make all
+
+# Clean and re-run
+make clean && make all
 ```
 
 ---
