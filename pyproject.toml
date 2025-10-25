@@ -1,7 +1,7 @@
 [project]
-name = "data-mining-project"
+name = "netflix-genre-prediction"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multi-label text classification project that predicts Netflix content genres"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

@@ -43,7 +43,7 @@ wheels = [
 ]
 
 [[package]]
-name = "data-mining-project"
+name = "netflix-genre-prediction"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

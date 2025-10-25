@@ -1,367 +1,316 @@
 """
-Usage Guide and Training Example for Netflix Genre Prediction
-Shows how to use the preprocessed data for model training
+Netflix Genre Prediction - Complete Preprocessing Pipeline
+Uses Ollama embeddinggemma for text embeddings
 """
 
-import numpy as np
-import json
-import pickle
-from pathlib import Path
-from sklearn.multioutput import MultiOutputClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    hamming_loss, 
-    accuracy_score, 
-    f1_score,
-    classification_report,
-    multilabel_confusion_matrix
-)
 import pandas as pd
+import numpy as np
+import ollama
+from sklearn.preprocessing import MultiLabelBinarizer, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+import pickle
+import json
+from pathlib import Path
 
 
-# ============================================================================
-# 1. LOADING PREPROCESSED DATA
-# ============================================================================
+class NetflixPreprocessor:
+    """Complete preprocessing pipeline for Netflix genre prediction"""
+    
+    def __init__(self, embedding_model='embeddinggemma', embedding_dim=768):
+        self.embedding_model = embedding_model
+        self.embedding_dim = embedding_dim
+        self.mlb = MultiLabelBinarizer()  # For multi-label genres
+        self.cat_encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+        self.genre_names = None
+        self.feature_names = None
+        
+    def load_data(self, filepath):
+        """Load Netflix CSV data"""
+        print(f"Loading data from {filepath}...")
+        df = pd.read_csv(filepath)
+        print(f"Loaded {len(df)} rows")
+        print(f"Columns: {list(df.columns)}")
+        return df
+    
+    def parse_genres(self, df):
+        """Parse comma-separated genres into lists"""
+        print("\nParsing genres...")
+        
+        # Split genres by comma and strip whitespace
+        df['genre_list'] = df['genres'].apply(
+            lambda x: [g.strip() for g in x.split(',')] if pd.notna(x) else []
+        )
+        
+        # Statistics
+        genre_counts = df['genre_list'].apply(len)
+        print(f"Average genres per item: {genre_counts.mean():.2f}")
+        print(f"Min genres: {genre_counts.min()}, Max genres: {genre_counts.max()}")
+        
+        # Count unique genres
+        all_genres = [g for genres in df['genre_list'] for g in genres]
+        unique_genres = set(all_genres)
+        print(f"Total unique genres: {len(unique_genres)}")
+        
+        return df
+    
+    def encode_genres(self, df):
+        """Convert genre lists to multi-label binary matrix"""
+        print("\nEncoding genres as multi-label targets...")
+        
+        # Fit and transform genres
+        y = self.mlb.fit_transform(df['genre_list'])
+        self.genre_names = self.mlb.classes_
+        
+        print(f"Genre matrix shape: {y.shape}")
+        print(f"Genre labels: {len(self.genre_names)}")
+        print(f"Top 10 genres: {list(self.genre_names[:10])}")
+        
+        return y
+    
+    def generate_embeddings(self, texts, batch_size=50, save_path=None):
+        """
+        Generate embeddings using Ollama (or load from cache if exists)
 
-def load_data(data_dir='processed_data'):
-    """Load all preprocessed data"""
+        Args:
+            texts: List of text strings
+            batch_size: Process in batches for progress tracking
+            save_path: Optional path to save/load embeddings
+        """
+        # Check if embeddings already exist
+        if save_path and Path(save_path).exists():
+            print(f"\n✓ Found existing embeddings at {save_path}")
+            embeddings = np.load(save_path)
+            print(f"Loaded embeddings shape: {embeddings.shape}")
+
+            # Verify shape matches
+            if embeddings.shape[0] == len(texts) and embeddings.shape[1] == self.embedding_dim:
+                print("✓ Embeddings match expected dimensions, using cached version")
+                return embeddings
+            else:
+                print(f"⚠ Shape mismatch (expected {len(texts)}×{self.embedding_dim}, got {embeddings.shape})")
+                print("Regenerating embeddings...")
+
+        print(f"\nGenerating embeddings using {self.embedding_model}...")
+        print(f"Processing {len(texts)} descriptions...")
+
+        embeddings = []
+
+        # Process with progress bar
+        for i in tqdm(range(0, len(texts), batch_size), desc="Embedding batches"):
+            batch = texts[i:i+batch_size]
+
+            for text in batch:
+                try:
+                    response = ollama.embed(
+                        model=self.embedding_model,
+                        input=str(text)  # Ensure it's a string
+                    )
+                    embeddings.append(response['embeddings'][0])
+                except Exception as e:
+                    print(f"\nError embedding text: {text[:50]}... Error: {e}")
+                    # Use zero vector as fallback
+                    embeddings.append([0.0] * self.embedding_dim)
+
+        embeddings = np.array(embeddings)
+        print(f"Embedding matrix shape: {embeddings.shape}")
+
+        # Save embeddings if path provided
+        if save_path:
+            np.save(save_path, embeddings)
+            print(f"Saved embeddings to {save_path}")
+
+        return embeddings
+    
+    def encode_categorical_features(self, df):
+        """Encode type and rating as categorical features"""
+        print("\nEncoding categorical features (type, rating)...")
+        
+        # Handle missing values
+        df['type_clean'] = df['type'].fillna('Unknown')
+        df['rating_clean'] = df['rating'].fillna('Unknown')
+        
+        # One-hot encode
+        cat_features = self.cat_encoder.fit_transform(
+            df[['type_clean', 'rating_clean']]
+        )
+        
+        # Get feature names (use actual column names from fitting)
+        cat_names = self.cat_encoder.get_feature_names_out()
+        
+        print(f"Categorical features shape: {cat_features.shape}")
+        print(f"Features: {list(cat_names)}")
+        
+        return cat_features, cat_names
+    
+    def combine_features(self, embeddings, categorical_features, cat_names):
+        """Combine embeddings with categorical features"""
+        print("\nCombining all features...")
+        
+        X = np.hstack([embeddings, categorical_features])
+        
+        # Create feature names
+        embedding_names = [f'emb_{i}' for i in range(embeddings.shape[1])]
+        self.feature_names = embedding_names + list(cat_names)
+        
+        print(f"Final feature matrix shape: {X.shape}")
+        print(f"  - Embeddings: {embeddings.shape[1]} dimensions")
+        print(f"  - Categorical: {categorical_features.shape[1]} dimensions")
+        print(f"  - Total: {X.shape[1]} dimensions")
+        
+        return X
+    
+    def preprocess(self, csv_path, save_dir='processed_data'):
+        """
+        Complete preprocessing pipeline
+        
+        Args:
+            csv_path: Path to Netflix CSV
+            save_dir: Directory to save processed data
+        
+        Returns:
+            X: Feature matrix
+            y: Multi-label target matrix
+            df: Original dataframe with additions
+        """
+        # Create save directory
+        save_dir = Path(save_dir)
+        save_dir.mkdir(exist_ok=True)
+        
+        # Load data
+        df = self.load_data(csv_path)
+        
+        # Parse and encode genres
+        df = self.parse_genres(df)
+        y = self.encode_genres(df)
+        
+        # Generate text embeddings
+        embeddings_path = save_dir / 'embeddings.npy'
+        embeddings = self.generate_embeddings(
+            df['description'].tolist(),
+            save_path=embeddings_path
+        )
+        
+        # Encode categorical features
+        categorical_features, cat_names = self.encode_categorical_features(df)
+        
+        # Combine all features
+        X = self.combine_features(embeddings, categorical_features, cat_names)
+        
+        # Save processed data
+        print(f"\nSaving processed data to {save_dir}...")
+        np.save(save_dir / 'X.npy', X)
+        np.save(save_dir / 'y.npy', y)
+        df.to_csv(save_dir / 'processed_df.csv', index=False)
+        
+        # Save preprocessor configuration
+        config = {
+            'embedding_model': self.embedding_model,
+            'embedding_dim': self.embedding_dim,
+            'genre_names': self.genre_names.tolist(),
+            'feature_names': self.feature_names,
+            'n_samples': X.shape[0],
+            'n_features': X.shape[1],
+            'n_genres': y.shape[1]
+        }
+        
+        with open(save_dir / 'config.json', 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        # Save sklearn objects
+        with open(save_dir / 'preprocessor.pkl', 'wb') as f:
+            pickle.dump({
+                'mlb': self.mlb,
+                'cat_encoder': self.cat_encoder
+            }, f)
+        
+        print("\n✅ Preprocessing complete!")
+        print(f"Files saved in: {save_dir}/")
+        print(f"  - X.npy: Feature matrix {X.shape}")
+        print(f"  - y.npy: Target matrix {y.shape}")
+        print(f"  - embeddings.npy: Text embeddings")
+        print(f"  - processed_df.csv: Full dataframe")
+        print(f"  - config.json: Configuration")
+        print(f"  - preprocessor.pkl: Sklearn objects")
+        
+        return X, y, df
+    
+    def create_train_test_split(self, X, y, test_size=0.2, random_state=42, 
+                                save_dir='processed_data'):
+        """Create and save train/test splits"""
+        print(f"\nCreating train/test split (test_size={test_size})...")
+        
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=random_state
+        )
+        
+        save_dir = Path(save_dir)
+        np.save(save_dir / 'X_train.npy', X_train)
+        np.save(save_dir / 'X_test.npy', X_test)
+        np.save(save_dir / 'y_train.npy', y_train)
+        np.save(save_dir / 'y_test.npy', y_test)
+        
+        print(f"Train set: {X_train.shape[0]} samples")
+        print(f"Test set: {X_test.shape[0]} samples")
+        print(f"Saved splits to {save_dir}/")
+        
+        return X_train, X_test, y_train, y_test
+
+
+def load_processed_data(data_dir='processed_data'):
+    """Load previously processed data"""
     data_dir = Path(data_dir)
     
-    # Load feature and target matrices
-    X_train = np.load(data_dir / 'X_train.npy')
-    X_test = np.load(data_dir / 'X_test.npy')
-    y_train = np.load(data_dir / 'y_train.npy')
-    y_test = np.load(data_dir / 'y_test.npy')
+    print(f"Loading processed data from {data_dir}...")
     
-    # Load configuration
+    X = np.load(data_dir / 'X.npy')
+    y = np.load(data_dir / 'y.npy')
+    
     with open(data_dir / 'config.json', 'r') as f:
         config = json.load(f)
     
-    # Load sklearn objects
     with open(data_dir / 'preprocessor.pkl', 'rb') as f:
         sklearn_objects = pickle.load(f)
     
-    return X_train, X_test, y_train, y_test, config, sklearn_objects
+    print(f"Loaded X: {X.shape}, y: {y.shape}")
+    print(f"Genres: {len(config['genre_names'])}")
+    
+    return X, y, config, sklearn_objects
 
 
 # ============================================================================
-# 2. MULTI-LABEL CLASSIFICATION METRICS
-# ============================================================================
-
-def evaluate_multilabel(y_true, y_pred, genre_names):
-    """Comprehensive evaluation for multi-label classification"""
-    
-    results = {}
-    
-    # Overall metrics
-    results['hamming_loss'] = hamming_loss(y_true, y_pred)
-    results['exact_match_ratio'] = accuracy_score(y_true, y_pred)
-    results['f1_micro'] = f1_score(y_true, y_pred, average='micro')
-    results['f1_macro'] = f1_score(y_true, y_pred, average='macro')
-    results['f1_weighted'] = f1_score(y_true, y_pred, average='weighted')
-    results['f1_samples'] = f1_score(y_true, y_pred, average='samples')
-    
-    # Per-genre metrics
-    per_genre_f1 = f1_score(y_true, y_pred, average=None)
-    
-    genre_performance = pd.DataFrame({
-        'genre': genre_names,
-        'f1_score': per_genre_f1,
-        'support': y_true.sum(axis=0)
-    }).sort_values('f1_score', ascending=False)
-    
-    results['per_genre'] = genre_performance
-    
-    return results
-
-
-def print_evaluation(results):
-    """Pretty print evaluation results"""
-    print("\n" + "="*60)
-    print("MULTI-LABEL CLASSIFICATION RESULTS")
-    print("="*60)
-    
-    print("\n📊 Overall Metrics:")
-    print(f"  Hamming Loss:        {results['hamming_loss']:.4f} (lower is better)")
-    print(f"  Exact Match Ratio:   {results['exact_match_ratio']:.4f}")
-    print(f"  F1 Score (micro):    {results['f1_micro']:.4f}")
-    print(f"  F1 Score (macro):    {results['f1_macro']:.4f}")
-    print(f"  F1 Score (weighted): {results['f1_weighted']:.4f}")
-    print(f"  F1 Score (samples):  {results['f1_samples']:.4f}")
-    
-    print("\n📈 Top 10 Best-Performing Genres:")
-    print(results['per_genre'].head(10).to_string(index=False))
-    
-    print("\n📉 Bottom 10 Worst-Performing Genres:")
-    print(results['per_genre'].tail(10).to_string(index=False))
-
-
-# ============================================================================
-# 3. BASELINE MODEL: LOGISTIC REGRESSION
-# ============================================================================
-
-def train_baseline_model(X_train, y_train, X_test, y_test, genre_names):
-    """
-    Train a baseline logistic regression model
-    Uses OneVsRest strategy for multi-label classification
-    """
-    print("\n" + "="*60)
-    print("TRAINING BASELINE MODEL: Logistic Regression")
-    print("="*60)
-    
-    # Create multi-label classifier
-    model = MultiOutputClassifier(
-        LogisticRegression(
-            max_iter=1000,
-            random_state=42,
-            C=1.0,
-            solver='lbfgs'
-        ),
-        n_jobs=-1  # Use all CPU cores
-    )
-    
-    print("Training...")
-    model.fit(X_train, y_train)
-    
-    print("Predicting on test set...")
-    y_pred = model.predict(X_test)
-    
-    # Evaluate
-    results = evaluate_multilabel(y_test, y_pred, genre_names)
-    print_evaluation(results)
-    
-    return model, results
-
-
-# ============================================================================
-# 4. ADVANCED MODEL: RANDOM FOREST
-# ============================================================================
-
-def train_random_forest(X_train, y_train, X_test, y_test, genre_names):
-    """
-    Train a Random Forest model
-    Generally performs better than logistic regression for complex patterns
-    """
-    print("\n" + "="*60)
-    print("TRAINING RANDOM FOREST MODEL")
-    print("="*60)
-    
-    model = MultiOutputClassifier(
-        RandomForestClassifier(
-            n_estimators=100,
-            max_depth=20,
-            min_samples_split=5,
-            random_state=42,
-            n_jobs=-1
-        ),
-        n_jobs=1  # RandomForest already uses n_jobs
-    )
-    
-    print("Training (this may take a few minutes)...")
-    model.fit(X_train, y_train)
-    
-    print("Predicting on test set...")
-    y_pred = model.predict(X_test)
-    
-    # Evaluate
-    results = evaluate_multilabel(y_test, y_pred, genre_names)
-    print_evaluation(results)
-    
-    return model, results
-
-
-# ============================================================================
-# 5. ERROR ANALYSIS
-# ============================================================================
-
-def analyze_errors(X_test, y_test, y_pred, df_test, genre_names):
-    """
-    Analyze where the model fails to understand genre ambiguity
-    """
-    print("\n" + "="*60)
-    print("ERROR ANALYSIS")
-    print("="*60)
-    
-    # Find exact mismatches (predictions that don't match ground truth at all)
-    exact_errors = (y_test != y_pred).all(axis=1)
-    n_exact_errors = exact_errors.sum()
-    
-    print(f"\nTotal exact mismatches: {n_exact_errors}/{len(y_test)} ({n_exact_errors/len(y_test)*100:.1f}%)")
-    
-    # Find partial errors (some genres right, some wrong)
-    partial_errors = (y_test != y_pred).any(axis=1) & ~exact_errors
-    n_partial_errors = partial_errors.sum()
-    
-    print(f"Partial errors: {n_partial_errors}/{len(y_test)} ({n_partial_errors/len(y_test)*100:.1f}%)")
-    
-    # Most confused genre pairs
-    print("\n🔀 Most Confused Genre Pairs:")
-    
-    confusion_pairs = []
-    for i, genre in enumerate(genre_names):
-        # False positives: predicted but not true
-        fp_idx = (y_pred[:, i] == 1) & (y_test[:, i] == 0)
-        
-        if fp_idx.sum() > 0:
-            # What genres were actually true when this was falsely predicted?
-            actual_genres = y_test[fp_idx]
-            for j, other_genre in enumerate(genre_names):
-                if i != j:
-                    overlap = (actual_genres[:, j] == 1).sum()
-                    if overlap > 5:  # At least 5 occurrences
-                        confusion_pairs.append({
-                            'predicted': genre,
-                            'actual': other_genre,
-                            'count': overlap
-                        })
-    
-    confusion_df = pd.DataFrame(confusion_pairs).sort_values('count', ascending=False)
-    print(confusion_df.head(20).to_string(index=False))
-    
-    # Show example errors
-    print("\n📋 Example Misclassified Items:")
-    error_indices = np.where(exact_errors)[0][:5]
-    
-    for idx in error_indices:
-        true_genres = [genre_names[i] for i in range(len(genre_names)) if y_test[idx, i] == 1]
-        pred_genres = [genre_names[i] for i in range(len(genre_names)) if y_pred[idx, i] == 1]
-        
-        # Get description from test dataframe
-        test_idx = df_test.index[idx]
-        desc = df_test.loc[test_idx, 'description']
-        title = df_test.loc[test_idx, 'title']
-        
-        print(f"\nTitle: {title}")
-        print(f"Description: {desc[:100]}...")
-        print(f"True genres: {', '.join(true_genres)}")
-        print(f"Predicted genres: {', '.join(pred_genres)}")
-
-
-# ============================================================================
-# 6. MAIN EXECUTION
+# MAIN EXECUTION
 # ============================================================================
 
 if __name__ == "__main__":
     
-    # Load preprocessed data
-    print("Loading preprocessed data...")
-    X_train, X_test, y_train, y_test, config, sklearn_objects = load_data('processed_data')
-    genre_names = config['genre_names']
-    
-    # Load test dataframe for error analysis
-    df_test = pd.read_csv('processed_data/processed_df.csv')
-    # Get test indices (assuming same random state for split)
-    from sklearn.model_selection import train_test_split
-    _, df_test_subset = train_test_split(df_test, test_size=0.2, random_state=42)
-    df_test_subset = df_test_subset.reset_index(drop=True)
-    
-    print(f"\nDataset Info:")
-    print(f"  Training samples: {X_train.shape[0]}")
-    print(f"  Test samples: {X_test.shape[0]}")
-    print(f"  Features: {X_train.shape[1]}")
-    print(f"  Genres: {y_train.shape[1]}")
-    
-    # Train baseline model
-    lr_model, lr_results = train_baseline_model(
-        X_train, y_train, X_test, y_test, genre_names
+    # Initialize preprocessor
+    preprocessor = NetflixPreprocessor(
+        embedding_model='embeddinggemma',
+        embedding_dim=768
     )
     
-    # Train random forest model
-    rf_model, rf_results = train_random_forest(
-        X_train, y_train, X_test, y_test, genre_names
+    # Run full preprocessing pipeline
+    X, y, df = preprocessor.preprocess(
+        csv_path='NetFlix.csv',
+        save_dir='processed_data'
     )
     
-    # Compare models
+    # Create train/test splits
+    X_train, X_test, y_train, y_test = preprocessor.create_train_test_split(
+        X, y, 
+        test_size=0.2,
+        save_dir='processed_data'
+    )
+    
+    # Display summary statistics
     print("\n" + "="*60)
-    print("MODEL COMPARISON")
+    print("PREPROCESSING SUMMARY")
     print("="*60)
-    print(f"Logistic Regression F1 (macro): {lr_results['f1_macro']:.4f}")
-    print(f"Random Forest F1 (macro):       {rf_results['f1_macro']:.4f}")
-    
-    # Error analysis on best model
-    best_model = rf_model if rf_results['f1_macro'] > lr_results['f1_macro'] else lr_model
-    best_y_pred = best_model.predict(X_test)
-    
-    analyze_errors(X_test, y_test, best_y_pred, df_test_subset, genre_names)
-    
-    print("\n✅ Analysis complete!")
-
-
-# ============================================================================
-# 7. QUICK START EXAMPLE
-# ============================================================================
-
-"""
-QUICK START GUIDE
-=================
-
-1. First, run the preprocessing pipeline:
-   python netflix_preprocessing.py
-   
-   This will:
-   - Generate embeddings using Ollama
-   - Encode genres and categorical features
-   - Save processed data to processed_data/
-
-2. Then train and evaluate models:
-   python netflix_training.py
-   
-   This will:
-   - Load preprocessed data
-   - Train baseline (Logistic Regression)
-   - Train Random Forest
-   - Compare results
-   - Analyze errors
-
-3. Load and use a trained model:
-
-   ```python
-   # Load data
-   X_train, X_test, y_train, y_test, config, sklearn_obj = load_data()
-   
-   # Train your model
-   model = MultiOutputClassifier(LogisticRegression())
-   model.fit(X_train, y_train)
-   
-   # Make predictions
-   predictions = model.predict(X_test)
-   
-   # Evaluate
-   results = evaluate_multilabel(y_test, predictions, config['genre_names'])
-   print_evaluation(results)
-   ```
-
-4. Predict genres for new descriptions:
-
-   ```python
-   import ollama
-   
-   # Get embedding for new description
-   new_desc = "A thrilling zombie apocalypse movie"
-   response = ollama.embed(model='embeddinggemma', input=new_desc)
-   embedding = np.array(response['embeddings'][0])
-   
-   # Add categorical features (e.g., Movie, TV-MA)
-   # ... encode type and rating using saved cat_encoder ...
-   
-   # Predict
-   prediction = model.predict([combined_features])
-   predicted_genres = [genre_names[i] for i in range(len(genre_names)) 
-                       if prediction[0, i] == 1]
-   print(f"Predicted genres: {predicted_genres}")
-   ```
-
-KEY METRICS EXPLAINED
-=====================
-
-- Hamming Loss: Fraction of labels incorrectly predicted (lower is better)
-- Exact Match Ratio: Percentage where ALL genres are correct
-- F1 Micro: Overall F1 treating all genre predictions equally
-- F1 Macro: Average F1 across genres (treats rare genres equally)
-- F1 Weighted: Average F1 weighted by genre frequency
-- F1 Samples: Average F1 per sample (how well we predict all genres for each item)
-
-For multi-label classification, F1 Macro is often most meaningful as it 
-shows how well the model works across ALL genres, not just common ones.
-"""
+    print(f"Total samples: {X.shape[0]}")
+    print(f"Total features: {X.shape[1]}")
+    print(f"Total genres: {y.shape[1]}")
+    print(f"Train samples: {X_train.shape[0]}")
+    print(f"Test samples: {X_test.shape[0]}")
+    print(f"\nGenres: {preprocessor.genre_names[:10]}... (showing first 10)")
+    print("\n✅ Ready for model training!")
