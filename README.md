@@ -274,47 +274,30 @@ Our error analysis reveals systematic confusion patterns:
 
 **Key insight:** "Dramas" and "International Movies" are frequently **co-labels** (appear together in 320 titles), making them legitimately overlapping rather than errors.
 
-### Feature Importance
+### Feature Importance Insights
 
-While Random Forest doesn't provide direct feature importance for multi-label tasks, we can infer from performance:
+**Note:** Random Forest doesn't provide direct feature importance for multi-label tasks. The following are **logical inferences** based on observed performance patterns, not ablation-tested measurements.
 
-#### 🎯 Most Valuable Features
+#### 🎯 Inferred Feature Contributions
 
-1. **Type (Movie/TV Show)** - Nearly perfect for type-specific genres
-   - "Kids' TV" vs "Children & Family Movies" perfectly separated
-   - "Crime TV Shows" vs "Crime Movies" distinction
-   - Impact: ~40% of genres are type-specific
+Based on genre-level performance and feature characteristics, we infer:
 
-2. **Rating** - Strong signal for age-appropriate content
-   - TV-Y/TV-Y7 → Kids' TV (F1=0.81)
-   - TV-MA → distinguishes adult content
-   - G/PG → Family content (F1=0.71)
-   - Impact: Crucial for 5-10 genres
+1. **Type (Movie/TV Show)** - Likely critical for type-specific genres
+   - **Evidence:** Genres with "TV" in name (Kids' TV, Crime TV Shows) perform well (F1=0.72-0.81)
+   - **Inference:** Type feature disambiguates "TV Dramas" from "Dramas"
+   - Estimated impact: ~40% of genres have type in their name
 
-3. **Text Embeddings (768D)** - Captures semantic meaning
-   - Comedy vs Drama tone detection
-   - Crime/thriller vocabulary ("detective", "murder", "investigation")
-   - Genre-specific keywords ("stand-up", "documentary")
-   - Impact: Essential for all genres
+2. **Rating** - Likely important for age-appropriate content
+   - **Evidence:** Kids' TV (F1=0.81) and Children & Family Movies (F1=0.71) perform well
+   - **Inference:** Ratings like TV-Y, TV-Y7, G, PG are strong signals
+   - Estimated impact: 5-10 genres likely benefit significantly
 
-#### 📊 Feature Impact by Genre Type
+3. **Text Embeddings (768D)** - Likely essential for content-based genres
+   - **Evidence:** Stand-Up Comedy (F1=0.87) and Documentaries (F1=0.61) perform well
+   - **Inference:** Semantic patterns capture genre-specific language
+   - Estimated impact: All genres likely use text to some degree
 
-**Type-dominant genres** (type feature is decisive):
-- TV Dramas, TV Comedies, Kids' TV, Crime TV Shows
-- These achieve high F1 when `type` matches
-
-**Rating-dominant genres** (rating feature is decisive):
-- Kids' TV (TV-Y/TV-Y7), Children & Family Movies (G/PG)
-- Horror Movies (R/TV-MA) vs Kids content
-
-**Text-dominant genres** (embeddings are decisive):
-- Stand-Up Comedy (vocabulary: "comedian", "jokes", "laugh")
-- Documentaries (vocabulary: "explores", "history", "real")
-- Sports Movies (vocabulary: "team", "championship", "athlete")
-
-**Multi-feature genres** (need all three):
-- Most genres require combination of type + rating + text
-- E.g., "Romantic TV Shows" needs type=TV + romantic keywords
+**Caveat:** To measure actual feature importance, ablation studies (training with features removed) would be required.
 
 ### Key Learnings
 
@@ -356,17 +339,6 @@ While Random Forest doesn't provide direct feature importance for multi-label ta
 - Genre labels are often type-specific ("TV Dramas" vs "Dramas")
 - Rating correlates with content type (Kids content vs Horror)
 - Country and duration left out to avoid noise (high cardinality)
-
-### Model Architecture
-
-**Baseline: Logistic Regression**
-- OneVsRest strategy (42 binary classifiers)
-- Fast training
-- Good interpretability
-
-**Advanced: Random Forest**
-- Handles non-linear patterns
-- Better performance
 
 ---
 
