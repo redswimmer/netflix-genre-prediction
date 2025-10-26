@@ -136,34 +136,62 @@ make train
 - Evaluates using multi-label metrics
 - Uses cross-validation for threshold tuning
 
-**Results:**
+---
+
+## ⚡ Using the Makefile
+
+For convenience, a Makefile is provided with common commands:
+
+```bash
+# View all available commands
+make help
+
+# Install dependencies (includes dev tools like ruff)
+make install
+
+# Run the pipeline
+make preprocess       # Generate embeddings and features
+make train            # Train and evaluate models
+make all              # Run full pipeline (preprocess + train)
+
+# Code quality
+make lint             # Check code with ruff
+make format           # Auto-format code with ruff
+
+# Cleanup
+make clean            # Remove processed_data/ and cache files
 ```
-FINAL MODEL: Random Forest (class_weight + CV-tuned threshold)
-  F1 Score (macro):    0.38
-  F1 Score (micro):    0.53
-  Training time:       ~3 minutes
 
-Performance by Genre Frequency:
-  High-frequency genres (>100 samples):  F1 = 0.60-0.87  ✓ Works well
-  Medium-frequency (50-100 samples):     F1 = 0.30-0.60  ⚠ Mixed
-  Low-frequency (<50 samples):           F1 = 0.00-0.30  ✗ Struggles
+**Quick workflow:**
+```bash
+# First time setup
+make install
+ollama pull embeddinggemma
 
-Top Performing Genres:
-  Stand-Up Comedy:     F1 = 0.87
-  Kids' TV:            F1 = 0.81
-  Crime TV Shows:      F1 = 0.72
-  International Movies: F1 = 0.58
-  Documentaries:       F1 = 0.61
+# Run full pipeline
+make all
+
+# Clean and re-run
+make clean && make all
 ```
-
-**Key Findings:**
-- Model works reliably for 15-20 common genres (60-70% of use cases)
-- Class imbalance (203:1 ratio) makes rare genres difficult to predict
-- For multi-label classification with 42 classes, F1=0.38 is reasonable performance
 
 ---
 
-## 🔬 Experimental Results
+## 📊 Understanding the Metrics
+
+### Multi-Label Classification Metrics
+
+- **Hamming Loss** (lower is better): Fraction of labels incorrectly predicted
+- **Exact Match Ratio**: Percentage where ALL genres are perfectly predicted
+- **F1 Macro**: Average F1 across all genres (primary metric)
+- **F1 Micro**: Overall F1 across all predictions
+- **F1 Samples**: Average F1 per sample
+
+**For this problem, F1 Macro is most meaningful** as it treats rare genres equally with common ones.
+
+---
+
+## 🔬 Experiment Results
 
 ### Model Comparison: Logistic Regression vs Random Forest
 
@@ -171,8 +199,8 @@ We trained and evaluated two models on the Netflix genre prediction task:
 
 | Model | F1 Macro | F1 Micro | Exact Match | Training Time | Prediction Time |
 |-------|----------|----------|-------------|---------------|-----------------|
-| **Logistic Regression** | 0.2604 | 0.5696 | 19.26% | ~30 seconds | Fast |
-| **Random Forest (optimized)** | **0.3783** | 0.5329 | 1.60% | ~3 minutes | Medium |
+| **Logistic Regression** | 0.2604 | 0.5696 | 19.26% | ~30 seconds | <0.1s |
+| **Random Forest (optimized)** | **0.3783** | 0.5329 | 1.60% | ~3 minutes | ~0.5s |
 
 **Winner: Random Forest** with class weighting and CV-tuned threshold (0.15)
 - **+45.3% improvement** in F1 Macro over baseline
@@ -309,86 +337,6 @@ While Random Forest doesn't provide direct feature importance for multi-label ta
    - Text alone insufficient (many genres need type/rating)
    - Embeddings capture semantic nuance better than TF-IDF
    - Categorical features provide strong structural signals
-
----
-
-## ⚡ Using the Makefile
-
-For convenience, a Makefile is provided with common commands:
-
-```bash
-# View all available commands
-make help
-
-# Install dependencies (includes dev tools like ruff)
-make install
-
-# Run the pipeline
-make preprocess       # Generate embeddings and features
-make train            # Train and evaluate models
-make all              # Run full pipeline (preprocess + train)
-
-# Code quality
-make lint             # Check code with ruff
-make format           # Auto-format code with ruff
-
-# Cleanup
-make clean            # Remove processed_data/ and cache files
-```
-
-**Quick workflow:**
-```bash
-# First time setup
-make install
-ollama pull embeddinggemma
-
-# Run full pipeline
-make all
-
-# Clean and re-run
-make clean && make all
-```
-
----
-
-## 📊 Understanding the Metrics
-
-### Multi-Label Classification Metrics
-
-- **Hamming Loss** (lower is better): Fraction of labels incorrectly predicted
-- **Exact Match Ratio**: Percentage where ALL genres are perfectly predicted
-- **F1 Macro**: Average F1 across all genres (primary metric)
-- **F1 Micro**: Overall F1 across all predictions
-- **F1 Samples**: Average F1 per sample
-
-**For this problem, F1 Macro is most meaningful** as it treats rare genres equally with common ones.
-
----
-
-## 💡 Key Insights & Findings
-
-### What Makes This Problem Interesting
-
-1. **Genre Ambiguity**: Many titles legitimately belong to multiple genres
-   - "Dramas" + "International Movies" appears together 320 times
-   - Model confusion reveals subjective labeling decisions
-
-2. **Class Imbalance**: Real-world challenge
-   - Most common: "International Movies" (2,437 items)
-   - Least common: "TV Shows" (12 items)
-   - 203:1 imbalance ratio
-
-3. **Feature Impact**:
-   - `type` (Movie vs TV) is nearly perfect for some genres (e.g., "TV Dramas")
-   - Embeddings capture semantic similarity ("zombie apocalypse" ≈ "undead outbreak")
-   - `rating` helps distinguish Kids content from Horror
-
-4. **Model Performance**:
-   - Best approach: Random Forest with class weighting + CV-tuned threshold (0.15)
-   - High-frequency genres: F1 = 0.60-0.87 (Stand-Up Comedy, Kids' TV, Crime Shows)
-   - Low-frequency genres: F1 = 0.00-0.30 (insufficient training data)
-   - Overall F1 Macro: 0.38 (reasonable for 42-class imbalanced multi-label)
-   - Final model outperforms Logistic Regression baseline by 45%
 
 ---
 
